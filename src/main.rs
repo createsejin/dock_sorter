@@ -78,33 +78,20 @@ fn parse_dock_ranges_for_exceptions(s: &str) -> Result<Vec<u32>, String> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum Priority {
-  Exception, // 0: 예외 그룹 (가장 높음)
   First,     // 1: 1차
   Second,    // 2: 2차
   Third,     // 3: 3차 (일반)
 }
 
 fn main() {
-  let args_raw = Args::parse(); // clap으로부터 직접 파싱된 값
-
-  // Vec<Vec<u32>> 를 Vec<u32> 로 flatten 하고, 중복 제거 및 정렬 (선택 사항이지만 권장)
-  let first_priority_flat: Vec<u32> = args_raw.first_priority.into_iter().flatten().collect();
-  let second_priority_flat: Vec<u32> = args_raw.second_priority.into_iter().flatten().collect();
-  // exception_groups_raw는 Vec<Vec<u32>> 형태 그대로 유지. 각 내부 Vec<u32>가 하나의 예외 그룹임.
-  let exception_groups: Vec<Vec<u32>> = args_raw.exception_groups_raw;
-
-  // 이제 args_raw 대신 flatten된 Vec<u32>를 사용합니다.
-  // 더 간결하게 하려면, Args 구조체를 수정하는 대신 여기서 바로 변환된 값을 사용하는 것도 방법입니다.
-  // 여기서는 명확성을 위해 별도의 변수를 사용합니다.
+  let args_raw = Args::parse();
 
   // 입력 유효성 검사
   if args_raw.per_page == 0 {
-    // per_page는 args_raw에서 직접 접근
     eprintln!("Error: Number of docks per group must be 1 or greater.");
     std::process::exit(1);
   }
   if args_raw.min > args_raw.max {
-    // min, max도 args_raw에서 직접 접근
     eprintln!(
       "Error: Minimum dock number ({}) cannot be greater than maximum dock number ({}).",
       args_raw.min, args_raw.max
@@ -112,157 +99,179 @@ fn main() {
     std::process::exit(1);
   }
 
-  // 1. 우선순위 맵 생성 및 범위 검사
-  let mut priorities: HashMap<u32, Priority> = HashMap::new();
+  // 1. 입력된 우선순위 및 예외 도크 정리
+  let first_priority_docks: HashSet<u32> = args_raw.first_priority.into_iter().flatten().collect();
+  let second_priority_docks: HashSet<u32> = args_raw.second_priority.into_iter().flatten().collect();
+  
+  // 예외 그룹 처리: 각 예외 그룹을 정렬하고, 전체 예외 도크 집합을 만듦.
+  // final_exception_groups는 각 예외 그룹(Vec<u32>)의 리스트. 각 그룹은 정렬됨.
+  // all_exception_docks는 모든 예외 도크를 담는 HashSet.
+  let mut final_exception_groups: Vec<Vec<u32>> = Vec::new();
+  let mut all_exception_docks: HashSet<u32> = HashSet::new();
   let mut warnings: Vec<String> = Vec::new();
-  let mut exception_docks_set: HashSet<u32> = HashSet::new(); // 예외 그룹에 속한 모든 도크 추적
 
-  // 예외 그룹 우선순위 할당
-  for group in &exception_groups {
-    for &dock in group {
-      if dock >= args_raw.min && dock <= args_raw.max {
-        priorities.insert(dock, Priority::Exception);
-        exception_docks_set.insert(dock);
-      } else {
-        warnings.push(format!(
-        "Warning: Exception dock {} from group {:?} is outside the specified range [{}-{}] and will be ignored.",
-        dock, group, args_raw.min, args_raw.max
-        ));
+  for raw_ex_group in args_raw.exception_groups_raw { // Vec<Vec<u32>>
+    let mut current_ex_group: Vec<u32> = raw_ex_group.into_iter()
+      .filter(|&d| { // 범위 검사
+        if d >= args_raw.min && d <= args_raw.max {
+          true
+        } else {
+          warnings.push(format!(
+            "Warning: Exception dock {} is outside the specified range [{}-{}] and will be ignored from its group.",
+            d, args_raw.min, args_raw.max
+          ));
+          false
+        }
+      })
+      .collect();
+    
+    current_ex_group.sort_unstable(); // 그룹 내 도크 정렬
+    current_ex_group.dedup();         // 그룹 내 중복 제거
+
+    if !current_ex_group.is_empty() {
+      // 다른 예외 그룹과 겹치는 도크가 있는지 확인하고, 겹치면 경고 후 현재 그룹에서 제외
+      // 또는 다른 전략 (예: 먼저 정의된 그룹 우선) - 여기서는 단순화를 위해 겹치면 경고만
+      let mut filtered_current_ex_group = Vec::new();
+      for dock in current_ex_group {
+          if all_exception_docks.contains(&dock) {
+              warnings.push(format!(
+                  "Warning: Dock {} is part of multiple exception groups. It will remain in the first encountered group.",
+                  dock
+              ));
+          } else {
+              filtered_current_ex_group.push(dock);
+              all_exception_docks.insert(dock);
+          }
+      }
+      if !filtered_current_ex_group.is_empty() {
+        final_exception_groups.push(filtered_current_ex_group);
       }
     }
   }
+  // final_exception_groups를 첫 번째 도크 번호 기준으로 정렬 (출력 순서 일관성 위함)
+  final_exception_groups.sort_unstable_by_key(|group| group.first().cloned().unwrap_or(u32::MAX));
 
-  // 1차 우선순위 할당 (예외가 아닌 경우에만)
-  for &dock in &first_priority_flat {
-    if dock >= args_raw.min && dock <= args_raw.max && !exception_docks_set.contains(&dock) {
+
+  // 2. 각 도크에 우선순위 할당 (예외 도크 제외)
+  let mut priorities: HashMap<u32, Priority> = HashMap::new();
+
+  for &dock in &first_priority_docks {
+    if dock >= args_raw.min && dock <= args_raw.max && !all_exception_docks.contains(&dock) {
       priorities.insert(dock, Priority::First);
-    } else if !(dock >= args_raw.min && dock <= args_raw.max) {
-      // 범위 밖 경고
+    } else if !(dock >= args_raw.min && dock <= args_raw.max) { // 범위 밖 경고
       warnings.push(format!(
         "Warning: First priority dock {} is outside the specified range [{}-{}] and will be ignored.",
         dock, args_raw.min, args_raw.max
       ));
     }
-    // 예외 그룹에 이미 속해있으면 우선순위 변경 안 함
   }
 
-  // 2차 우선순위 할당 (예외나 1차가 아닌 경우에만)
-  for &dock in &second_priority_flat {
-    if dock >= args_raw.min && dock <= args_raw.max && !exception_docks_set.contains(&dock) {
-      priorities.entry(dock).or_insert(Priority::Second); // First가 있으면 덮어쓰지 않음
-    } else if !(dock >= args_raw.min && dock <= args_raw.max) {
-      // 범위 밖 경고
-      warnings.push(format!(
+  for &dock in &second_priority_docks {
+    if dock >= args_raw.min && dock <= args_raw.max && !all_exception_docks.contains(&dock) {
+      priorities.entry(dock).or_insert(Priority::Second);
+    } else if !(dock >= args_raw.min && dock <= args_raw.max) { // 범위 밖 경고
+       warnings.push(format!(
         "Warning: Second priority dock {} is outside the specified range [{}-{}] and will be ignored.",
         dock, args_raw.min, args_raw.max
       ));
     }
   }
+  // 3차 우선순위는 나중에 그룹핑 시점에 기본값으로 처리
 
-  // 경고 출력
+  // 경고 메시지 출력
   for warning in warnings {
     eprintln!("{}", warning);
   }
 
-  // 2. 전체 도크 목록 생성 (사용자 지정 범위 기준) 및 3차 우선순위 부여
-  let mut all_docks_to_process: Vec<u32> = Vec::new();
-  for dock in args_raw.min..=args_raw.max {
-    priorities.entry(dock).or_insert(Priority::Third); // Exception, First, Second가 아니면 Third
-    all_docks_to_process.push(dock); // 정렬된 순서대로 추가됨
-  }
+  // 3. 처리할 전체 도크 목록 (min부터 max까지 정렬됨)
+  let all_docks_in_range: Vec<u32> = (args_raw.min..=args_raw.max).collect();
 
   println!("Processing dock range: {} - {}", args_raw.min, args_raw.max);
   println!("Docks per group (non-exceptions): {}", args_raw.per_page);
-  if !exception_groups.is_empty() {
-    println!("Exception groups (printed together):");
-    for group in &exception_groups {
-      let group_str: Vec<String> = group
-        .iter()
-        .filter(|&&d| d >= args_raw.min && d <= args_raw.max)
-        .map(|d| d.to_string())
-        .collect();
-      if !group_str.is_empty() {
+  if !final_exception_groups.is_empty() {
+    println!("Exception groups (will be printed together, in order of their first dock):");
+    for ex_group in &final_exception_groups {
+        let group_str: Vec<String> = ex_group.iter().map(|d| d.to_string()).collect();
         println!("  - [{}]", group_str.join(", "));
-      }
     }
   }
-  println!("--- Output Order (Exc: group, 1st: @, 2nd: *) ---");
+  println!("--- Output Order (1st: @, 2nd: *) ---");
 
-  // 3. 그룹핑 로직 수정
+  // 4. 최종 그룹핑 로직
   let mut result_groups: Vec<Vec<u32>> = Vec::new();
-  let mut processed_docks: HashSet<u32> = HashSet::new(); // 이미 처리된 도크 (주로 예외 그룹)
+  let mut processed_docks_in_grouping: HashSet<u32> = HashSet::new(); // 그룹핑 과정에서 처리된 도크
 
-  // 3.1 예외 그룹 먼저 처리
-  // 예외 그룹은 입력된 순서대로, 그리고 그룹 내 도크도 입력된 순서대로 처리
-  for ex_group in &exception_groups {
-    let current_ex_group: Vec<u32> = ex_group
-      .iter()
-      .cloned()
-      .filter(|&d| d >= args_raw.min && d <= args_raw.max && !processed_docks.contains(&d)) // 범위 내, 미처리 도크만
-      .collect();
+  for &current_dock in &all_docks_in_range {
+    if processed_docks_in_grouping.contains(&current_dock) {
+      continue; // 이미 이전 그룹에 포함되어 처리됨
+    }
 
-    if !current_ex_group.is_empty() {
-      result_groups.push(current_ex_group.clone());
-      for &dock in &current_ex_group {
-        processed_docks.insert(dock);
+    // 현재 도크가 예외 그룹의 시작점인지 확인
+    let mut is_exception_start = false;
+    let mut current_exception_group_data: Option<Vec<u32>> = None;
+
+    if all_exception_docks.contains(&current_dock) {
+      for ex_g in &final_exception_groups {
+        if ex_g.first() == Some(&current_dock) { // 현재 도크가 이 예외 그룹의 시작점
+          is_exception_start = true;
+          current_exception_group_data = Some(ex_g.clone());
+          break;
+        }
       }
     }
-  }
 
-  // 3.2 나머지 도크 처리 (all_docks_to_process는 min부터 max까지 정렬된 상태)
-  let mut current_regular_group: Vec<u32> = Vec::new();
-  for &dock in &all_docks_to_process {
-    if processed_docks.contains(&dock) {
-      // 이미 예외 그룹으로 처리된 도크는 건너뜀
-      continue;
-    }
-
-    let current_priority = *priorities.get(&dock).unwrap(); // 이 시점엔 모든 도크에 우선순위 할당됨
-
-    // 현재 도크가 Exception이면 안됨 (이미 위에서 처리) - 안전장치
-    if current_priority == Priority::Exception {
-      // 혹시 누락된 예외 도크가 있다면 개별 처리 (이론상 발생 안해야 함)
-      if !current_regular_group.is_empty() {
-        result_groups.push(current_regular_group);
-        current_regular_group = Vec::new();
+    if is_exception_start && current_exception_group_data.is_some() {
+      // 예외 그룹 처리
+      let ex_group = current_exception_group_data.unwrap();
+      result_groups.push(ex_group.clone());
+      for &dock_in_ex in &ex_group {
+        processed_docks_in_grouping.insert(dock_in_ex);
       }
-      result_groups.push(vec![dock]); // 개별 예외 도크 그룹
-      processed_docks.insert(dock); // 처리됨 표시
-      continue;
-    }
+    } else if !all_exception_docks.contains(&current_dock) { // 예외 그룹의 일부가 아닌 일반 도크 처리
+      let mut regular_group: Vec<u32> = Vec::new();
+      regular_group.push(current_dock);
+      processed_docks_in_grouping.insert(current_dock);
 
-    if current_regular_group.is_empty() {
-      current_regular_group.push(dock);
-    } else if current_regular_group.len() >= args_raw.per_page {
-      result_groups.push(current_regular_group);
-      current_regular_group = vec![dock];
-    } else {
-      let first_dock_in_group = current_regular_group[0];
-      let priority_of_first = *priorities.get(&first_dock_in_group).unwrap();
+      // 다음 도크들을 보면서 그룹 확장
+      let mut next_dock_idx_in_range = all_docks_in_range.iter().position(|&d| d == current_dock).unwrap_or(0) + 1;
+      
+      while regular_group.len() < args_raw.per_page && next_dock_idx_in_range < all_docks_in_range.len() {
+        let next_dock_candidate = all_docks_in_range[next_dock_idx_in_range];
 
-      if current_priority < priority_of_first {
-        result_groups.push(current_regular_group);
-        current_regular_group = vec![dock];
-      } else {
-        current_regular_group.push(dock);
+        if processed_docks_in_grouping.contains(&next_dock_candidate) || all_exception_docks.contains(&next_dock_candidate) {
+          break; // 이미 처리되었거나, 다음이 예외 그룹에 속하면 현재 일반 그룹 종료
+        }
+
+        let first_in_regular_prio = priorities.get(&regular_group[0]).unwrap_or(&Priority::Third);
+        let next_candidate_prio = priorities.get(&next_dock_candidate).unwrap_or(&Priority::Third);
+
+        if next_candidate_prio < first_in_regular_prio { // 다음 도크 우선순위가 더 높으면 그룹 분리
+          break;
+        }
+
+        regular_group.push(next_dock_candidate);
+        processed_docks_in_grouping.insert(next_dock_candidate);
+        next_dock_idx_in_range += 1;
       }
+      result_groups.push(regular_group);
     }
+    // 만약 현재 도크가 예외 그룹의 시작점이 아니고, 예외 그룹의 중간이나 끝에 속한 도크라면,
+    // processed_docks_in_grouping 체크에 의해 이 루프의 다음 반복에서 continue로 건너뛰어짐.
   }
 
-  if !current_regular_group.is_empty() {
-    result_groups.push(current_regular_group);
-  }
-
-  // 4. 결과 출력
+  // 5. 결과 출력
   for group in result_groups {
     let formatted_group: Vec<String> = group
       .iter()
       .map(|&d| {
-        match priorities.get(&d) {
-          Some(Priority::Exception) => format!("{}", d), // 예외 표시 (E 또는 다른 기호)
-          Some(Priority::First) => format!("{}@", d),
-          Some(Priority::Second) => format!("{}*", d),
-          _ => d.to_string(),
+        if all_exception_docks.contains(&d) { // 예외 도크는 기호 없음
+          d.to_string()
+        } else {
+          match priorities.get(&d) { // 예외가 아닌 도크는 priorities 맵에 우선순위가 있어야 함
+            Some(Priority::First) => format!("{}@", d),
+            Some(Priority::Second) => format!("{}*", d),
+            Some(Priority::Third) | None => d.to_string(), // 3차 또는 혹시 모를 누락(None)
+          }
         }
       })
       .collect();
