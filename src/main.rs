@@ -22,11 +22,11 @@ struct Args {
   per_page: usize,
 
   /// Number of docks per group for 1st priority docks (defaults to -p value if not set)
-  #[arg(short = '1', long = "fpp", required = false)] // short: -1, long: --fpp
+  #[arg(short = '1', long = "fp", required = false)] // short: -1, long: --fpp
   first_priority_per_page: Option<usize>,
 
   /// Number of docks per group for 2nd priority docks (defaults to -p value if not set)
-  #[arg(short = '2', long = "spp", required = false)] // short: -2, long: --spp
+  #[arg(short = '2', long = "sp", required = false)] // short: -2, long: --spp
   second_priority_per_page: Option<usize>,
 
   /// Minimum dock number to process
