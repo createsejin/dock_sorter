@@ -34,7 +34,7 @@ struct Args {
   min: u32,
 
   /// Maximum dock number to process (required)
-  #[arg(long, required = true, default_value_t = 78)]
+  #[arg(long, required = false, default_value_t = 78)]
   max: u32,
 }
 
