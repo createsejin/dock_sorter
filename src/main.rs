@@ -34,7 +34,7 @@ struct Args {
   min: u32,
 
   /// Maximum dock number to process (required)
-  #[arg(long, required = true)]
+  #[arg(long, required = true, default_value_t = 78)]
   max: u32,
 }
 
@@ -54,26 +54,23 @@ fn parse_dock_ranges(s: &str) -> Result<Vec<u32>, String> {
           }
         } else {
           return Err(format!(
-            "Invalid range: start ({}) must be less than or equal to end ({}) in '{}'",
-            start, end, s
+            "Invalid range: start ({start}) must be less than or equal to end ({end}) in '{s}'"
           ));
         }
       } else {
         return Err(format!(
-          "Invalid range format: '{}'. Both parts must be numbers.",
-          s
-        ));
+          "Invalid range format: '{s}'. Both parts must be numbers."));
       }
     } else {
       // 이 경우는 splitn(2, ..) 로 인해 발생하지 않지만, 완전성을 위해
-      return Err(format!("Invalid range format: '{}'", s));
+      return Err(format!("Invalid range format: '{s}'"));
     }
   } else if let Ok(dock_num) = s.trim().parse::<u32>() {
     // collapsible_else_if 수정: else if let 사용
     docks.push(dock_num);
   } else {
     // if let이 실패한 경우 (즉, '-'도 없고, 단일 숫자 파싱도 실패한 경우)
-    return Err(format!("Invalid number or range format: '{}'", s));
+    return Err(format!("Invalid number or range format: '{s}'"));
   }
   Ok(docks)
 }
@@ -143,7 +140,7 @@ fn main() {
           filtered_group.push(dock);
           all_exception_docks.insert(dock);
         } else {
-          warnings.push(format!("Warning: Dock {} in exception group already part of another exception group. Ignoring.", dock));
+          warnings.push(format!("Warning: Dock {dock} in exception group already part of another exception group. Ignoring."));
         }
       }
       if !filtered_group.is_empty() {
@@ -182,16 +179,16 @@ fn main() {
 
   // 경고 메시지 출력
   for warning in warnings {
-    eprintln!("{}", warning);
+    eprintln!("{warning}");
   }
 
   // 3. 처리할 전체 도크 목록 (min부터 max까지 정렬됨)
   let all_docks_in_range: Vec<u32> = (args_raw.min..=args_raw.max).collect();
 
   println!("Processing dock range: {} - {}", args_raw.min, args_raw.max);
-  println!("Docks per group (1st priority): {}", fpp);
-  println!("Docks per group (2nd priority): {}", spp);
-  println!("Docks per group (3rd priority/general): {}", gpp);
+  println!("Docks per group (1st priority): {fpp}");
+  println!("Docks per group (2nd priority): {spp}");
+  println!("Docks per group (3rd priority/general): {gpp}");
   if !final_exception_groups.is_empty() {
     println!("Exception groups (printed together, in order of their first dock):");
     for ex_group in &final_exception_groups {
@@ -294,8 +291,8 @@ fn main() {
           d.to_string()
         } else {
           match priorities.get(&d) { // 예외가 아닌 도크는 priorities 맵에 우선순위가 있어야 함
-            Some(Priority::First) => format!("{}@", d),
-            Some(Priority::Second) => format!("{}*", d),
+            Some(Priority::First) => format!("{d}@"),
+            Some(Priority::Second) => format!("{d}*"),
             Some(Priority::Third) | None => d.to_string(), // 3차 또는 혹시 모를 누락(None)
           }
         }
