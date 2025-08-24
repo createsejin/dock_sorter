@@ -43,14 +43,21 @@ struct Args {
 
   // 그룹 확장 조건을 더 엄격하게 하는 플래그이다. 이 플래그가 입력되면
   // 1차 그룹은 1차 그룹끼리만 그루핑된다. 플래그가 입력되지 않으면 1차 그룹 뒤에 하위 그룹 도크들이 붙을 수 있다.
+  /// Group 1st priority docks strictly with other 1st priority docks only.
+  /// 
+  /// When this flag is not set, lower priority docks can be appended to a 1st priority group.
   #[arg(long = "strict-first", short = 'F', action = clap::ArgAction::SetTrue)]
   strict_first: bool,
 
   // 2차 그룹 끼리만 엄격히 묶는 플래그. 윗 플래그와 동일한 기능이다.
+  /// Group 2nd priority docks strictly with other 2nd priority docks only.
+  /// 
+  /// When this flag is not set, 3rd priority docks can be appended to a 2nd priority group.
   #[arg(long = "strict-second", short = 'S', action = clap::ArgAction::SetTrue)]
   strict_second: bool,
 
   // 1차, 2차 도크에 marker를 출력하는지 여부의 플래그
+  /// Print markers ('@' for 1st, '*' for 2nd) next to priority dock numbers.
   #[arg(long = "mark", short = 'm', action = clap::ArgAction::SetTrue)]
   print_marker: bool,
 }
