@@ -49,6 +49,10 @@ struct Args {
   // 2차 그룹 끼리만 엄격히 묶는 플래그. 윗 플래그와 동일한 기능이다.
   #[arg(long = "strict-second", short = 'S', action = clap::ArgAction::SetTrue)]
   strict_second: bool,
+
+  // 1차, 2차 도크에 marker를 출력하는지 여부의 플래그
+  #[arg(long = "mark", short = 'm', action = clap::ArgAction::SetTrue)]
+  print_marker: bool,
 }
 
 /// 입력된 문자열(단일 숫자 또는 "숫자-숫자" 범위)을 파싱하여 u32의 Vec으로 변환하는 함수.
@@ -408,12 +412,19 @@ fn main() {
         }
         // 예외 도크가 아니라면
         else {
-          // priorities에 도크 d를 키로 넣어서 해당 도크의 Priority를 match 시켜서
-          match priorities.get(&d) { // 예외가 아닌 도크는 priorities 맵에 우선순위가 있어야 함
-            Some(Priority::First) => format!("{d}@"), // 1차 2차에 맞는 기호를 붙여준다.
-            Some(Priority::Second) => format!("{d}*"),
-            Some(Priority::Third) | None => d.to_string(), // 3차 또는 Priority가 None일때에는 
-            // 그대로 넣는다.
+          // print_marker flag가 설정되었다면
+          if args_raw.print_marker {
+            // priorities에 도크 d를 키로 넣어서 해당 도크의 Priority를 match 시켜서
+            match priorities.get(&d) {
+              // 각 Priority에 맞는 기호를 붙여 출력한다.
+              Some(Priority::First) => format!("{d}@"),
+              Some(Priority::Second) => format!("{d}*"),
+              Some(Priority::Third) => d.to_string(),
+              None => d.to_string()
+            }
+          // print_marker가 Set되지 않았다면 그냥 출력한다.
+          } else {
+            d.to_string()
           }
         }
       })
