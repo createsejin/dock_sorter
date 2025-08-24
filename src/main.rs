@@ -43,14 +43,21 @@ struct Args {
 
   // 그룹 확장 조건을 더 엄격하게 하는 플래그이다. 이 플래그가 입력되면
   // 1차 그룹은 1차 그룹끼리만 그루핑된다. 플래그가 입력되지 않으면 1차 그룹 뒤에 하위 그룹 도크들이 붙을 수 있다.
+  /// Group 1st priority docks strictly with other 1st priority docks only.
+  /// 
+  /// When this flag is not set, lower priority docks can be appended to a 1st priority group.
   #[arg(long = "strict-first", short = 'F', action = clap::ArgAction::SetTrue)]
   strict_first: bool,
 
   // 2차 그룹 끼리만 엄격히 묶는 플래그. 윗 플래그와 동일한 기능이다.
+  /// Group 2nd priority docks strictly with other 2nd priority docks only.
+  /// 
+  /// When this flag is not set, 3rd priority docks can be appended to a 2nd priority group.
   #[arg(long = "strict-second", short = 'S', action = clap::ArgAction::SetTrue)]
   strict_second: bool,
 
   // 1차, 2차 도크에 marker를 출력하는지 여부의 플래그
+  /// Print markers ('@' for 1st, '*' for 2nd) next to priority dock numbers.
   #[arg(long = "mark", short = 'm', action = clap::ArgAction::SetTrue)]
   print_marker: bool,
 }
@@ -342,7 +349,7 @@ fn main() {
 
       // --- [그룹 확장 루프] ---
       // 다음 조건들이 모두 만족하는 동안 그룹을 확장합니다:
-      // 1. 현재 그룹의 크기가 목표 개수(`current_target_per_page`)보다 작다.
+      // --1. 현재 그룹의 크기가 목표 개수(`current_target_per_page`)보다 작다.
       // 예를들어서 66, 67 도크가 모두 1차 도크이고, 1차 도크의 per-page가 1이라고 하면,
       // 처음 regular_group의 len은 1이고, per-page도 1이다. 따라서 이때 regular_group.len() < current_target_per_page는
       // 1 < 1 => false이므로 while문은 즉시 종료하게 되고, regular_group은 66인 상태로 남게되고, 새로운 67로 시작되는
@@ -350,7 +357,7 @@ fn main() {
       // 반면 51, 52 도크가 1차 2차도 아닌 일반 그룹이라고 하고, per-page가 2라고 하자.
       // 그럼 처음 51 도크가 regular_group에 담기게되고, 이때의 len은 1이다. 그런데 51 도크의 current_taget_per_page는
       // 2 이므로 while문이 진행된다.
-      // 2. 확인할 다음 도크가 전체 도크 범위(`all_docks_in_range`) 안에 있다.
+      // --2. 확인할 다음 도크가 전체 도크 범위(`all_docks_in_range`) 안에 있다.
       while regular_group.len() < current_target_per_page && next_dock_idx_in_range < all_docks_in_range.len() {
         // current_dock 다음 dock로 지명된 후보이다.
         let next_dock_candidate = all_docks_in_range[next_dock_idx_in_range];
