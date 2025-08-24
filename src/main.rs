@@ -40,6 +40,15 @@ struct Args {
   /// Maximum dock number to process 
   #[arg(long, required = false, default_value_t = 78)] // 기본값 78로 설정, optional
   max: u32,
+
+  // 그룹 확장 조건을 더 엄격하게 하는 플래그이다. 이 플래그가 입력되면
+  // 1차 그룹은 1차 그룹끼리만 그루핑된다. 플래그가 입력되지 않으면 1차 그룹 뒤에 하위 그룹 도크들이 붙을 수 있다.
+  #[arg(long = "strict-first", short = 'F', action = clap::ArgAction::SetTrue)]
+  strict_first: bool,
+
+  // 2차 그룹 끼리만 엄격히 묶는 플래그. 윗 플래그와 동일한 기능이다.
+  #[arg(long = "strict-second", short = 'S', action = clap::ArgAction::SetTrue)]
+  strict_second: bool,
 }
 
 /// 입력된 문자열(단일 숫자 또는 "숫자-숫자" 범위)을 파싱하여 u32의 Vec으로 변환하는 함수.
@@ -231,6 +240,13 @@ fn main() {
   println!("Docks per group (1st priority): {fpp}");
   println!("Docks per group (2nd priority): {spp}");
   println!("Docks per group (3rd priority/general): {gpp}");
+  // 만약 strict mode가 적용되었다면 모드 적용이 됐음을 출력한다.
+  if args_raw.strict_first {
+    println!("Strict mode applyed for 1st priority groups.");
+  }
+  if args_raw.strict_second {
+    println!("Strict mode applyed for 2nd priority groups.");
+  }
 
   // 만약 final_exception_groups이 있는 경우 해당 그룹들을 출력해준다.
   if !final_exception_groups.is_empty() {
@@ -347,15 +363,22 @@ fn main() {
         // current_dock의 다음인 next_dock_candidate의 Priority를 얻는다.
         let next_candidate_prio = priorities.get(&next_dock_candidate).unwrap_or(&Priority::Third);
 
-        // next_candidate_prio < regular_group_first_prio 조건:
-        // 다음 후보 도크의 우선순위가 현재 그룹의 기준 우선순위보다 높으면(enum의 값이 더 작으면) 그룹 확장을 중단합니다.  
-        // 예: 3차 그룹(`Third`)을 만드는 중에 1차 도크(`First`)를 만나면, 
-        // 1차 도크는 이 그룹에 포함되지 않고 다음 루프에서 자신만의 새 regular 그룹을 시작해야 합니다.
-        if /* regular_group_first_prio != next_candidate_prio ||  */ next_candidate_prio < regular_group_first_prio {
-          // regular_group_first_prio != next_candidate_prio 조건은 현재 그룹의 우선순위와 동일한 우선순위인 next만 현재 그룹 확장을
-          // 허용한다는 조건이다. 따라서 이 조건을 활성화하면 1차 그룹에는 1차만 올수 있고, 3차가 뒤에 붙을 수 없음.
+        // 확장 중단 조건 2 규칙의 결과에 따라 break를 결정하기 위한 bool 변수
+        let should_break = 
+          // 첫번째 조건: next 도크의 우선순위가 현재 도크의 우선순위보다 낮은 경우
+          // 예를들면 3차 도크 뒤에 1차 도크가 오는 경우 break하고 새로운 1차 도크의 regular_group을 만들어야한다.
+          (next_candidate_prio < regular_group_first_prio) ||
+          // 만약 strict_first와 같은 플래그가 설정됐다면, 1차 그룹은 1차 그룹끼리만 묶여진다. 즉, next가 1차 그룹이 
+          // 아니라면 즉시 break 되어 새로운 regular_group을 생성해야한다.
+          (*regular_group_first_prio == Priority::First && 
+            args_raw.strict_first && *next_candidate_prio != Priority::First) ||
+          // 2차 그룹 역시 strict mode 플래그에 따라 해당 조건이 활성화된다. 
+          (*regular_group_first_prio == Priority::Second && 
+            args_raw.strict_second && *next_candidate_prio != Priority::Second);
+
+        // 확장 중단 조건 2의 결과에 따라 break를 할지 말지가 결정된다.
+        if should_break {
           break;
-          //TODO: 1차 그룹 혹은 2차 그룹에 동일 그룹만 오게끔 하거나 혹은 그 하위 그룹이 붙을 수 있게하는 조건 플래그를 하나 만들자.
         }
 
         // 확장 중단 조건을 모두 통과했다면 regular_group에 next_dock_candidate을 push한다.
